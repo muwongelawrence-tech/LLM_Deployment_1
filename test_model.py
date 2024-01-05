@@ -8,7 +8,7 @@ response = requests.post(
       "Content-Type": "text/plain",
    },
    data=''' 
-   Once upon a time in a small, impoverished village, there lived a young boy named Alex. His childhood was marked by struggle and hardship, as the village faced economic challenges and scarce resources. Alex's parents worked tirelessly to make ends meet, but life was tough, and dreams seemed like distant fantasies.
+Once upon a time in a small, impoverished village, there lived a young boy named Alex. His childhood was marked by struggle and hardship, as the village faced economic challenges and scarce resources. Alex's parents worked tirelessly to make ends meet, but life was tough, and dreams seemed like distant fantasies.
 
 From a young age, Alex harbored big dreams. He would often spend his evenings gazing at the stars, imagining a life beyond the confines of their humble village. Despite the adversity, he possessed an unyielding spirit and a determination to change his circumstances.
 
