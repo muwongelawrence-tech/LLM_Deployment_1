@@ -1,7 +1,7 @@
 import bentoml
 
-model = "sshleifer/distilbart-cnn-12-6"
-task = "summarization"
+model = "aceuganda/HEAL-BMG-grant-translation-english-luganda-v10"
+task = "text2textgeneration"
 
 # Import the model directly without loading it into memory
 bentoml.transformers.import_model(

@@ -1,94 +1,39 @@
-# import bentoml
+import bentoml
+import torch
+from transformers import AutoTokenizer
 
-# summarizer_runner = bentoml.models.get("summarization:latest").to_runner()
+translation_runner = bentoml.models.get("text2textgeneration:latest").to_runner()
 
-# svc = bentoml.Service(
-#     name="summarization", runners=[summarizer_runner]
-# )
-
-# @svc.api(input=bentoml.io.Text(), output=bentoml.io.Text())
-# async def summarize(text: str) -> str:
-#     generated = await summarizer_runner.async_run(text, max_length=3000)
-#     return generated[0]["summary_text"]
-#############################################################################################
-
-# import bentoml
-# from transformers import GPT2Model, GPT2Tokenizer
-
-# # Load the pre-trained GPT-2 model and tokenizer
-# tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
-# model = GPT2Model.from_pretrained('gpt2')
-
-# # Get the latest version of the BentoML service and convert it into a runner
-# gpt2_runner = bentoml.models.get("gpt2:latest").to_runner()
-
-# # Create a BentoML service with the specified runner
-# svc = bentoml.Service(
-#     name="gpt2", runners=[gpt2_runner]
-# )
-
-# # Define an API endpoint for the service
-# @svc.api(input=bentoml.io.Text(), output=bentoml.io.Text())
-# async def generate_text(text: str) -> str:
-#     # Tokenize the input text using GPT-2 tokenizer
-#     tokens = tokenizer.encode(text, return_tensors='pt')
-#     # Run the GPT-2 model with the provided tokens
-#     outputs = model(tokens)
-#     # Get the generated text from the model output
-#     generated_text = outputs.last_hidden_state.mean(dim=1).tolist()
-#     return generated_text
-
-#####################################################################################################
-from __future__ import annotations
-import uuid
-from typing import Any, AsyncGenerator, Dict, TypedDict, Union
-
-from bentoml import Service
-from bentoml.io import JSON, Text
-from openllm import LLM
-
-llm = LLM[Any, Any]("HuggingFaceH4/zephyr-7b-alpha", backend="vllm")
-
-
-svc = Service("tinyllm", runners=[llm.runner])
-
-
-class GenerateInput(TypedDict):
-    prompt: str
-    stream: bool
-    sampling_params: Dict[str, Any]
-
-
-@svc.api(
-    route="/v1/generate",
-    input=JSON.from_sample(
-        GenerateInput(
-            prompt="What is time?",
-            stream=False,
-            sampling_params={"temperature": 0.73, "logprobs": 1},
-        )
-    ),
-    output=Text(content_type="text/event-stream"),
+svc = bentoml.Service(
+    name="EnglishToLuganda", runners=[translation_runner]
 )
-async def generate(request: GenerateInput) -> Union[AsyncGenerator[str, None], str]:
-    n = request["sampling_params"].pop("n", 1)
-    request_id = f"tinyllm-{uuid.uuid4().hex}"
-    previous_texts = [[]] * n
 
-    generator = llm.generate_iterator(
-        request["prompt"], request_id=request_id, n=n, **request["sampling_params"]
-    )
+@svc.api(input=bentoml.io.Text(), output=bentoml.io.Text())
+async def translate(text: str) -> str:
+    # Assuming 'models' attribute is a list
+    model_instance = translation_runner.models[0]
 
-    async def streamer() -> AsyncGenerator[str, None]:
-        async for request_output in generator:
-            for output in request_output.outputs:
-                i = output.index
-                previous_texts[i].append(output.text)
-                yield output.text
+    tokenizer = AutoTokenizer.from_pretrained('aceuganda/HEAL-BMG-grant-translation-english-luganda-v10')
 
-    if request["stream"]:
-        return streamer()
+    if tokenizer is None:
+        return "Tokenizer not found in the model instance."
 
-    async for _ in streamer():
-        pass
-    return "".join(previous_texts[0])
+    # Tokenize the input text using the correct tokenizer
+    inputs = tokenizer(text, return_tensors='pt', padding=True)
+
+    # Assuming 'generate' is a method of the model instance for text generation
+    generated = await translation_runner.async_run(**inputs)
+
+    # Process the logits to obtain the text output
+    output_ids = torch.argmax(generated['logits'], dim=-1)
+    output_text = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0]
+
+    print(f"RESPONSE --->: { output_text }")
+    
+    return output_text
+
+     
+    
+  
+
+

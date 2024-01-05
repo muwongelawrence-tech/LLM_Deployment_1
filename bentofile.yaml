@@ -1,3 +1,4 @@
+name: heal
 service: 'service:svc'
 labels:
    owner: ace-team
@@ -9,4 +10,4 @@ python:
     - torch
     - transformers
 models:
-  - summarization:latest
+  - text2textgeneration:latest
