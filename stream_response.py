@@ -44,44 +44,28 @@ async def translate(request: GenerateInput) -> Union[AsyncGenerator[str, None], 
 
     generated = await translation_runner.async_run(**input_ids)
 
-    print(f"LOGITS: {generated['logits']} ")
-  
-    async def streamer(text) -> AsyncGenerator[str, None]:
-        # Initialize an empty string to accumulate the generated tokens
-        accumulated_text = ""
-
-        # Split the input text into lines
-        lines = text.strip().split('\n')
-
-        for line in lines:
-            # Process each line (you can modify this part based on your needs)
-            accumulated_text += f"{line}\n"
-            # Yield the accumulated text so far
-            yield accumulated_text
-            # Add a short sleep for demonstration purposes (you can adjust or remove this)
-            await asyncio.sleep(0.1)
-
-        # Make sure to yield the final result after processing all lines
-        # yield accumulated_text
-        # await asyncio.sleep(0)
-    
     # Process the logits to obtain the text output
-    output_ids = torch.argmax(generated['logits'], dim=-1)
+    output_ids = torch.argmax(generated['logits'], dim=-1).squeeze().tolist()
 
-    # Assuming batch_size is 1
-    for token_id in output_ids[0]:
-        # Make sure token_id is a scalar before using .item()
-        max_token_id = token_id.item()
-        print(f"MAX_TOKEN_ID: {max_token_id}")
-        output_text = tokenizer.decode(max_token_id, skip_special_tokens=True)
-
-        async for partial_response in streamer(output_text):
-        # You can send the partial_response to the client
-           print(f"Partial Response to Client: {partial_response}")
-        # return streamer(output_text)
+    # Use the same tokenizer for Decoding the output...
+    output_text = tokenizer.batch_decode([output_ids], skip_special_tokens=True)[0]
 
 
-   
-       
+    async def streamer() -> AsyncGenerator[str, None]:
+        # Split the output_text into chunks (e.g., sentences or smaller units)
+        chunks = output_text.split('.')
 
-   
+        for chunk in chunks:
+            if chunk:
+                for sentence in chunk.split('\n'): 
+                    if sentence:
+                        event_data = f"{sentence}\n\n"
+                        yield event_data
+                        await asyncio.sleep(0)
+        
+
+    if request["stream"]:
+        print(f"----------------Streaming output-------------")
+        return streamer()
+    else:
+        return output_text
