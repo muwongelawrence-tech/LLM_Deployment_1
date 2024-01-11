@@ -1,87 +1,61 @@
 import bentoml
 import torch
-import uuid
-import asyncio
-from transformers import AutoTokenizer
-from typing import Any, AsyncGenerator, Dict, TypedDict, Union
-from bentoml import Service
-from bentoml.io import JSON, Text
+import typing as t
 
+max_new_tokens = 50
+stream_interval = 2
+context_length = 2048
 
-translation_runner = bentoml.models.get("text2textgeneration:latest").to_runner()
+class StreamRunnable(bentoml.Runnable):
+    SUPPORTED_RESOURCES = ("nvidia.com/gpu", "cpu")
+    SUPPORTS_CPU_MULTI_THREADING = True
 
-svc = bentoml.Service(
-    name="englishtoluganda", runners=[translation_runner]
-)
+    def __init__(self):
+        self.tokenizer = bentoml.transformers.load_model("heal-tokenizer")
+        self.model = bentoml.transformers.load_model("heal-model")
 
-GenerateInput = dict[str, Union[str, bool, dict[str, Any]]]
+    @bentoml.Runnable.method()
+    async def generate(self, prompt: str) -> t.AsyncGenerator[str, None]:
+        input_ids = self.tokenizer(prompt).input_ids
+        max_src_len = context_length - max_new_tokens - 1
+        input_ids = input_ids[-max_src_len:]
+        output_ids = list(input_ids)
 
-@svc.api(
-    route="/translate",
-    input=JSON.from_sample(
-        GenerateInput(
-            prompt="What is fever?",
-            stream=True,
-            sampling_params={"temperature": 0.63, "logprobs": 1},
-        )
-    ),
-    output=Text(content_type="text/event-stream"),
-)
+        past_key_values = out = token = None
 
-async def translate(request: GenerateInput) -> Union[AsyncGenerator[str, None], str]:
-    n = request["sampling_params"].pop("n", 1)
-    request_id = f"englishtoluganda-{uuid.uuid4().hex}"
-    temperature = request["sampling_params"]["temperature"]
-    
+        for i in range(max_new_tokens):
+            if i == 0:  # prefill
+                out = self.model(torch.as_tensor([input_ids]), use_cache=True, )
+                logits = out.logits
+                past_key_values = out.past_key_values
+            else:  # decoding
+                out = self.model(input_ids=torch.as_tensor([[token]]), use_cache=True, past_key_values=past_key_values)
+                logits = out.logits
+                past_key_values = out.past_key_values
 
-    tokenizer = AutoTokenizer.from_pretrained('aceuganda/HEAL-BMG-grant-translation-english-luganda-v10')
+            last_token_logits = logits[0, -1, :]
 
-    if tokenizer is None:
-        return "Tokenizer not found in the model instance."
+            probs = torch.softmax(last_token_logits, dim=-1)
+            token = int(torch.multinomial(probs, num_samples=1))
+            output_ids.append(token)
 
-    # Tokenize the input text using the correct tokenizer.
-    input_ids = tokenizer(request['prompt'], return_tensors='pt', padding=True)
+            decoded_token = self.tokenizer.decode(
+                token,
+                skip_special_tokens=True,
+                spaces_between_special_tokens=False,
+                clean_up_tokenization_spaces=True
+            )
 
-    generated = await translation_runner.async_run(**input_ids)
+            # Format and yield the token for SSE
+            yield f"event: message\ndata: {decoded_token}\n\n"
 
-    print(f"LOGITS: {generated['logits']} ")
-  
-    async def streamer(text) -> AsyncGenerator[str, None]:
-        # Initialize an empty string to accumulate the generated tokens
-        accumulated_text = ""
+        # Indicate the end of the stream
+        yield "event: end\n\n"
 
-        # Split the input text into lines
-        lines = text.strip().split('\n')
+stream_runner = bentoml.Runner(StreamRunnable)
+svc = bentoml.Service("englishtoluganda", runners=[stream_runner])
 
-        for line in lines:
-            # Process each line (you can modify this part based on your needs)
-            accumulated_text += f"{line}\n"
-            # Yield the accumulated text so far
-            yield accumulated_text
-            # Add a short sleep for demonstration purposes (you can adjust or remove this)
-            await asyncio.sleep(0.1)
-
-        # Make sure to yield the final result after processing all lines
-        # yield accumulated_text
-        # await asyncio.sleep(0)
-    
-    # Process the logits to obtain the text output
-    output_ids = torch.argmax(generated['logits'], dim=-1)
-
-    # Assuming batch_size is 1
-    for token_id in output_ids[0]:
-        # Make sure token_id is a scalar before using .item()
-        max_token_id = token_id.item()
-        print(f"MAX_TOKEN_ID: {max_token_id}")
-        output_text = tokenizer.decode(max_token_id, skip_special_tokens=True)
-
-        async for partial_response in streamer(output_text):
-        # You can send the partial_response to the client
-           print(f"Partial Response to Client: {partial_response}")
-        # return streamer(output_text)
-
-
-   
-       
-
-   
+@svc.api(input=bentoml.io.Text(), output=bentoml.io.Text(content_type='text/event-stream'))
+async def generate(prompt: str) -> t.AsyncGenerator[str, None]:
+    async for token in stream_runner.generate.async_stream(prompt):
+        yield token
