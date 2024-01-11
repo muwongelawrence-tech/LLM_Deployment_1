@@ -61,7 +61,7 @@ One day, a kind teacher named Mrs. Hernandez recognized Alex's potential and too
             accumulated_text = ""
 
             async for chunk in response.aiter_text():
-                print(chunk, flush=True, end='')
+                # print(chunk, flush=True, end='')
                 # Accumulate chunks to construct the final message
                 accumulated_text += chunk
                
