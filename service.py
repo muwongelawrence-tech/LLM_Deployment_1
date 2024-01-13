@@ -1,10 +1,9 @@
 import bentoml
 import torch
+import asyncio
+from bentoml.io import JSON, Text
 import typing as t
 
-max_new_tokens = 50
-stream_interval = 2
-context_length = 2048
 
 class StreamRunnable(bentoml.Runnable):
     SUPPORTED_RESOURCES = ("nvidia.com/gpu", "cpu")
@@ -15,47 +14,62 @@ class StreamRunnable(bentoml.Runnable):
         self.model = bentoml.transformers.load_model("heal-model")
 
     @bentoml.Runnable.method()
-    async def generate(self, prompt: str) -> t.AsyncGenerator[str, None]:
-        input_ids = self.tokenizer(prompt).input_ids
-        max_src_len = context_length - max_new_tokens - 1
-        input_ids = input_ids[-max_src_len:]
-        output_ids = list(input_ids)
+    async def generate(self, prompt: str, stream: bool) -> t.AsyncGenerator[str, None]:
 
-        past_key_values = out = token = None
+        input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids
 
-        for i in range(max_new_tokens):
-            if i == 0:  # prefill
-                out = self.model(torch.as_tensor([input_ids]), use_cache=True, )
-                logits = out.logits
-                past_key_values = out.past_key_values
-            else:  # decoding
-                out = self.model(input_ids=torch.as_tensor([[token]]), use_cache=True, past_key_values=past_key_values)
-                logits = out.logits
-                past_key_values = out.past_key_values
+        parameters = {}
+        parameters['max_length'] = 1012  # Set your desired max_length here
+        parameters['min_length'] = 100
+        parameters['length_penalty'] = 10.0
+        parameters['num_beams'] = 10
+        parameters['early_stopping'] = True
+        parameters['do_sample'] = True
+        parameters['temperature'] = 0.00000000001
+        parameters['top_k'] = 10
+        parameters['top_p'] = 1.0
+        parameters['repetition_penalty'] = 0.5
 
-            last_token_logits = logits[0, -1, :]
+        
+        if stream:
+            # GENERATE RESPONSE WITH STREAMING.......
+            for token_id in self.model.generate(input_ids, **parameters)[0]:
+                # Convert tensor element to Python integer
+                token_id = token_id.item()
 
-            probs = torch.softmax(last_token_logits, dim=-1)
-            token = int(torch.multinomial(probs, num_samples=1))
-            output_ids.append(token)
+                # Decode the token
+                decoded_token = self.tokenizer.decode(
+                    token_id, 
+                    skip_special_tokens=True, 
+                    spaces_between_special_tokens=False,
+                    clean_up_tokenization_spaces=True
+                )
 
-            decoded_token = self.tokenizer.decode(
-                token,
-                skip_special_tokens=True,
-                spaces_between_special_tokens=False,
-                clean_up_tokenization_spaces=True
-            )
+                # Format and yield the token for SSE
+                yield f"event: message\nTOKEN_ID: {token_id} ->data: {decoded_token}\n\n"
+                await asyncio.sleep(0.2)
 
-            # Format and yield the token for SSE
-            yield f"event: message\ndata: {decoded_token}\n\n"
+            # Indicate the end of the stream
+            yield "event: end\n\n"
+        else:
+            # GENERATE RESPONSE WITHOUT STREAMING....
+            outputs = self.model.generate(input_ids, **parameters)
+            prediction = self.tokenizer.decode(outputs[0], skip_special_tokens=True, spaces_between_special_tokens=False,clean_up_tokenization_spaces=True)
+            yield f"{ prediction }"
 
-        # Indicate the end of the stream
-        yield "event: end\n\n"
+
+
+GenerateInput = dict[str, t.Union[str, bool]]
 
 stream_runner = bentoml.Runner(StreamRunnable)
 svc = bentoml.Service("englishtoluganda", runners=[stream_runner])
 
-@svc.api(input=bentoml.io.Text(), output=bentoml.io.Text(content_type='text/event-stream'))
-async def generate(prompt: str) -> t.AsyncGenerator[str, None]:
-    async for token in stream_runner.generate.async_stream(prompt):
+@svc.api(input=JSON.from_sample(
+        GenerateInput(
+            prompt="what is the difference of covid and fever?",
+            stream=False,
+         )
+    ), output=bentoml.io.Text(content_type='text/event-stream'))
+async def generate(request: GenerateInput) -> t.AsyncGenerator[str, None]:
+    async for token in stream_runner.generate.async_stream(request['prompt'], request['stream']):
         yield token

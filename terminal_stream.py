@@ -42,17 +42,7 @@ async def translate(request: GenerateInput) -> Union[AsyncGenerator[str, None], 
     # Tokenize the input text using the correct tokenizer.
     input_ids = tokenizer(request['prompt'], return_tensors='pt', padding=True)
 
-    parameters = {}
-    parameters['max_length'] = 1012  # Set your desired max_length here
-    parameters['min_length'] = 100
-    parameters['length_penalty'] = 10.0
-    parameters['num_beams'] = 25
-    parameters['early_stopping'] = True
-    parameters['temperature'] = 0.5
-    parameters['top_k'] = 25
-    parameters['top_p'] = 1.0
-
-    generated = await translation_runner.async_run(**input_ids, **parameters)
+    generated = await translation_runner.async_run(**input_ids)
 
     print(f"LOGITS: {generated['logits']} ")
   
