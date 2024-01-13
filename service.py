@@ -29,6 +29,7 @@ class StreamRunnable(bentoml.Runnable):
         parameters['top_k'] = 10
         parameters['top_p'] = 1.0
         parameters['repetition_penalty'] = 0.5
+        # parameters['num_return_sequences'] = 5
 
         
         if stream:
@@ -47,7 +48,7 @@ class StreamRunnable(bentoml.Runnable):
 
                 # Format and yield the token for SSE
                 yield f"event: message\nTOKEN_ID: {token_id} ->data: {decoded_token}\n\n"
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.1)
 
             # Indicate the end of the stream
             yield "event: end\n\n"
