@@ -6,6 +6,7 @@ import typing as t
 
 
 class StreamRunnable(bentoml.Runnable):
+    
     SUPPORTED_RESOURCES = ("nvidia.com/gpu", "cpu")
     SUPPORTS_CPU_MULTI_THREADING = True
 
@@ -19,17 +20,14 @@ class StreamRunnable(bentoml.Runnable):
         input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids
 
         parameters = {}
-        parameters['max_length'] = 1012  # Set your desired max_length here
-        parameters['min_length'] = 100
-        parameters['length_penalty'] = 10.0
+        parameters['max_length'] = 512  # Set your desired max_length here
         parameters['num_beams'] = 10
-        parameters['early_stopping'] = True
         parameters['do_sample'] = True
-        parameters['temperature'] = 0.00000000001
+        parameters['temperature'] = 0.1
         parameters['top_k'] = 10
         parameters['top_p'] = 1.0
-        parameters['repetition_penalty'] = 0.5
-        # parameters['num_return_sequences'] = 5
+        parameters['repetition_penalty'] = 1
+        # parameters['num_return_sequences'] = 1
 
         
         if stream:
